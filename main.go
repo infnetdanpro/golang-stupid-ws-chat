@@ -178,8 +178,14 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("inMessage.IsLogin", inMessage.IsLogin)
 			usersTokens[*socketClient] = inMessage.Token
 
-			// TODO: relaize list of subed channels
-			tokenChannels[inMessage.Token] = append(tokenChannels[inMessage.Token], "general")
+			// First sub if non exists 
+			firstlistChannels := tokenChannels[inMessage.Token]
+			subAlready := contains(firstlistChannels, "general")
+			if subAlready != true {
+				tokenChannels[inMessage.Token] = append(tokenChannels[inMessage.Token], "general")
+			}
+
+			// get list of channels
 			listChannels := tokenChannels[inMessage.Token]
 			outMessage := FirstLogin{listChannels}
 			jsonResp, _ := json.Marshal(outMessage)
@@ -189,7 +195,6 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 				// list of subscribed channels
 				channels := tokenChannels[inMessage.Token]
 				log.Println(inMessage.Token, channels, inMessage.ChannelName)
-				log.Println()
 
 				// Send only for subscribers of the channel
 				channelExists := contains(channels, inMessage.ChannelName)
