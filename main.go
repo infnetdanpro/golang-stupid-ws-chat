@@ -61,6 +61,7 @@ type FirstLogin struct {
 	ListChannels []string `json:"list_channels"`
 }
 
+
 func newConnectUser(ws *websocket.Conn, clientIP string) *ConnectUser {
 	return &ConnectUser{
 		Websocket: ws,
@@ -71,7 +72,7 @@ func newConnectUser(ws *websocket.Conn, clientIP string) *ConnectUser {
 var users = make(map[ConnectUser]int)
 var usersTokens = make(map[ConnectUser]string)
 var tokenChannels = make(map[string][]string)
-var channelsTokens = make(map[string][]string)
+// var channelsTokens = make(map[string][]string)
 
 // THIS IS PIZDOS SYNTAX
 var username_tokens = make(map[string]string)
@@ -230,6 +231,37 @@ func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func ListChannesHandler(w http.ResponseWriter, r *http.Request) {
+	setHeaders(w)
+
+	// channel: [token_1, token_2, ...]
+	var channelsTokens = make(map[string][]string)
+	for token := range tokenChannels {
+		channelsList := tokenChannels[token]
+		for channel := range channelsList {
+			channelsTokens[channelsList[channel]] = append(channelsTokens[channelsList[channel]], token)
+		}
+	}
+
+	channelNames := make([]string, len(channelsTokens))
+
+	i := 0
+	for k := range channelsTokens {
+	    channelNames[i] = k
+	    i++
+	}
+
+	resp := make(map[string][]string)
+	resp["list_channels"] = channelNames
+
+	jsonResp, err := json.Marshal(resp)
+	if err != nil {
+		log.Fatalf("Error happened in JSON marshal. Err: %s", err)
+	}
+	w.Write(jsonResp)
+	return
+}
+
 func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
 
@@ -296,7 +328,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 
 					socketToken := usersTokens[*socketClient]
 					outMessage.ItsMe = false
-					
+
 					if socketToken == inMessage.Token {
 						outMessage.ItsMe = true
 					}
@@ -322,6 +354,7 @@ func init() {
 	http.HandleFunc("/auth", UsernameHandler)
 	http.HandleFunc("/auth/check", CheckTokenExists)
 	http.HandleFunc("/sub", SubChannelHandler)
+	http.HandleFunc("/channels", ListChannesHandler)
 	http.HandleFunc("/ws", WebsocketHandler)
 }
 
