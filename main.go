@@ -69,6 +69,7 @@ func newConnectUser(ws *websocket.Conn, clientIP string) *ConnectUser {
 var users = make(map[ConnectUser]int)
 var usersTokens = make(map[ConnectUser]string)
 var tokenChannels = make(map[string][]string)
+var channelsTokens = make(map[string][]string)
 
 // THIS IS PIZDOS SYNTAX
 var username_tokens = make(map[string]string)
@@ -82,8 +83,21 @@ func contains(s []string, e string) bool {
     return false
 }
 
+func setHeaders(w http.ResponseWriter) http.ResponseWriter {
+	allowedHeaders := "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization, X-CSRF-Token"
+
+	w.Header().Set("content-type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
+	w.Header().Set("Access-Control-Expose-Headers", "Authorization")
+	return w
+}
+
 
 func UsernameHandler(w http.ResponseWriter, request *http.Request) {
+	setHeaders(w)
+
 	if request.Method == http.MethodOptions {
 		resp := make(map[string]string)
 		resp["check"] = "true"
@@ -92,14 +106,6 @@ func UsernameHandler(w http.ResponseWriter, request *http.Request) {
 		if err != nil {
 			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
 		}
-
-		allowedHeaders := "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization, X-CSRF-Token"
-
-		w.Header().Set("content-type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
-		w.Header().Set("Access-Control-Expose-Headers", "Authorization")
 		w.Write(jsonResp)
 	} else {
 		decoder := json.NewDecoder(request.Body)
@@ -133,6 +139,8 @@ func UsernameHandler(w http.ResponseWriter, request *http.Request) {
 }
 
 func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
+	setHeaders(w)
+
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 
 	ws, _ := upgrader.Upgrade(w, r, nil)
@@ -147,6 +155,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 	var socketClient *ConnectUser = newConnectUser(ws, ws.RemoteAddr().String())
 	users[*socketClient] = 0
 	log.Println("Number client connected ...", len(users))
+
 
 	for {
 		// TODO IN FUTURE: ReadJSON
@@ -170,6 +179,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 			usersTokens[*socketClient] = inMessage.Token
 
 			// TODO: relaize list of subed channels
+			tokenChannels[inMessage.Token] = append(tokenChannels[inMessage.Token], "general")
 			listChannels := tokenChannels[inMessage.Token]
 			outMessage := FirstLogin{listChannels}
 			jsonResp, _ := json.Marshal(outMessage)
@@ -195,6 +205,8 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func CheckTokenExists(w http.ResponseWriter, r *http.Request) {
+	setHeaders(w)
+
 	var t TokenStruct
 	w.Header().Set("Content-Type", "application/json")
 
@@ -226,11 +238,29 @@ func CheckTokenExists(w http.ResponseWriter, r *http.Request) {
 }
 
 func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("content-type", "application/json")
+	setHeaders(w)
+
+	if r.Method == http.MethodOptions {
+		resp := make(map[string]string)
+		resp["check"] = "true"
+
+		jsonResp, err := json.Marshal(resp)
+		if err != nil {
+			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
+		}
+		w.Write(jsonResp)
+		return
+	}
+
 	resp := make(map[string][]string)
 	
 	if r.Method == http.MethodGet {
 		token := r.FormValue("token")
+
+		if _, ok := tokenChannels[token]; !ok {
+			http.Error(w, "Not found token or empty list_channels", http.StatusNotFound)
+			return
+		}
 
 		resp["list_channels"] = tokenChannels[token]
 		jsonResp, err := json.Marshal(resp)
@@ -262,9 +292,8 @@ func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write(jsonResp)
 	}
-	
-	
 }
+
 
 func init() {
 	http.HandleFunc("/auth", UsernameHandler)
@@ -273,6 +302,9 @@ func init() {
 	http.HandleFunc("/ws", WebsocketHandler)
 }
 
+
 func main() {
-	log.Fatal(http.ListenAndServe("localhost:8080", nil))
+	serverHost := "localhost:8080"
+	log.Println("HTTP Server started\n", serverHost)
+	log.Fatal(http.ListenAndServe(serverHost, nil))
 }
