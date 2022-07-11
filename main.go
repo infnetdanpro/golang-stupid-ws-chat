@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
+	"time"
 )
 
 var upgrader = websocket.Upgrader{
@@ -44,10 +45,11 @@ type IncomingMessage struct {
 
 // For return in websocket as message
 type OutcomeMessage struct {
-	Username string
-	ChannelName string
-	Message MessageStruct
-	SentAt string
+	Username string			`json:"username"`
+	ChannelName string		`json:"channel_name"`
+	ItsMe bool				`json:"its_me"`
+	Message MessageStruct	`json:"message"`
+	SentAt int64			`json:"sent_at"`
 }
 
 type Subscribe struct {
@@ -133,81 +135,9 @@ func UsernameHandler(w http.ResponseWriter, request *http.Request) {
 		w.Header().Set("content-type", "application/json")
 		w.Write(jsonResp)
 	}
-
 	return
-
 }
 
-func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
-	setHeaders(w)
-
-	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-
-	ws, _ := upgrader.Upgrade(w, r, nil)
-
-	defer func() {
-		if err := ws.Close(); err != nil {
-			log.Println("Websocket could not be closed", err.Error())
-		}
-	}()
-
-	log.Println("Client connected:", ws.RemoteAddr().String())
-	var socketClient *ConnectUser = newConnectUser(ws, ws.RemoteAddr().String())
-	users[*socketClient] = 0
-	log.Println("Number client connected ...", len(users))
-
-
-	for {
-		// TODO IN FUTURE: ReadJSON
-		messageType, message, err := ws.ReadMessage()
-		if err != nil {
-			log.Println("Ws disconnect waiting", err.Error())
-			delete(users, *socketClient)
-			log.Println("Number of client still connected ...", len(users))
-			return
-		}
-
-		// Здесь обработка входяшего message
-		str := string(message)
-		inMessage := IncomingMessage{}
-		json.Unmarshal([]byte(str), &inMessage)
-
-		if inMessage.IsLogin == true {
-			// This is first message after connect to WS
-			// Need to {"token": "3efd7baf-8b15-4bee-b7d8-e3e0080d557e", "is_login": true}
-			log.Println("inMessage.IsLogin", inMessage.IsLogin)
-			usersTokens[*socketClient] = inMessage.Token
-
-			// First sub if non exists 
-			firstlistChannels := tokenChannels[inMessage.Token]
-			subAlready := contains(firstlistChannels, "general")
-			if subAlready != true {
-				tokenChannels[inMessage.Token] = append(tokenChannels[inMessage.Token], "general")
-			}
-
-			// get list of channels
-			listChannels := tokenChannels[inMessage.Token]
-			outMessage := FirstLogin{listChannels}
-			jsonResp, _ := json.Marshal(outMessage)
-			socketClient.Websocket.WriteMessage(messageType, jsonResp)
-		} else {
-			for client := range users {
-				// list of subscribed channels
-				channels := tokenChannels[inMessage.Token]
-				log.Println(inMessage.Token, channels, inMessage.ChannelName)
-
-				// Send only for subscribers of the channel
-				channelExists := contains(channels, inMessage.ChannelName)
-				if channelExists {
-					err = client.Websocket.WriteMessage(messageType, message)
-					if err != nil {
-						log.Println("Cloud not send Message to", client.ClientIP, err.Error())
-					}
-				}
-			}
-		}
-	}
-}
 
 func CheckTokenExists(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
@@ -241,6 +171,7 @@ func CheckTokenExists(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsonResp)
 	return
 }
+
 
 func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
@@ -299,11 +230,98 @@ func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
+	setHeaders(w)
+
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+
+	ws, _ := upgrader.Upgrade(w, r, nil)
+
+	defer func() {
+		if err := ws.Close(); err != nil {
+			log.Println("Websocket could not be closed", err.Error())
+		}
+	}()
+
+	log.Println("Client connected:", ws.RemoteAddr().String())
+	var socketClient *ConnectUser = newConnectUser(ws, ws.RemoteAddr().String())
+	users[*socketClient] = 0
+	log.Println("Number client connected ...", len(users))
+
+	for {
+		// TODO IN FUTURE: ReadJSON
+		messageType, message, err := ws.ReadMessage()
+		if err != nil {
+			log.Println("Ws disconnect waiting", err.Error())
+			delete(users, *socketClient)
+			log.Println("Number of client still connected ...", len(users))
+			return
+		}
+
+		// Здесь обработка входяшего message
+		str := string(message)
+		log.Println("1", str)
+		var inMessage IncomingMessage
+		json.Unmarshal([]byte(str), &inMessage)
+		channels := tokenChannels[inMessage.Token]
+
+		if inMessage.IsLogin == true {
+			// This is first message after connect to WS
+			// Need to {"token": "3efd7baf-8b15-4bee-b7d8-e3e0080d557e", "is_login": true}
+			usersTokens[*socketClient] = inMessage.Token
+
+			// First sub if non exists
+			subAlready := contains(channels, "general")
+			if subAlready != true {
+				tokenChannels[inMessage.Token] = append(tokenChannels[inMessage.Token], "general")
+			}
+
+			// get list of channels
+			outMessage := FirstLogin{tokenChannels[inMessage.Token]}
+			jsonResp, _ := json.Marshal(outMessage)
+			socketClient.Websocket.WriteMessage(messageType, jsonResp)
+		} else {
+			for client := range users {
+				log.Println(inMessage.Token, channels, inMessage.ChannelName)
+
+				// Send only for subscribers of the channel
+				channelExists := contains(channels, inMessage.ChannelName)
+				if channelExists {
+
+					// change message object to new
+					var outMessage OutcomeMessage
+					outMessage.Username = username_tokens[inMessage.Token]
+					outMessage.ChannelName = inMessage.ChannelName
+					outMessage.Message = inMessage.Message
+
+					socketToken := usersTokens[*socketClient]
+					outMessage.ItsMe = false
+					
+					if socketToken == inMessage.Token {
+						outMessage.ItsMe = true
+					}
+					timeNow := time.Now()
+					outMessage.SentAt = timeNow.Unix()
+
+					jsonResp, _ := json.Marshal(outMessage)
+
+					err = client.Websocket.WriteMessage(messageType, jsonResp)
+					if err != nil {
+						log.Println("Cloud not send Message to", client.ClientIP, err.Error())
+					}
+				} else {
+					log.Println("Channel name not exists", inMessage.ChannelName)
+				}
+			}
+		}
+	}
+}
+
 
 func init() {
 	http.HandleFunc("/auth", UsernameHandler)
-	http.HandleFunc("/sub", SubChannelHandler)
 	http.HandleFunc("/auth/check", CheckTokenExists)
+	http.HandleFunc("/sub", SubChannelHandler)
 	http.HandleFunc("/ws", WebsocketHandler)
 }
 
