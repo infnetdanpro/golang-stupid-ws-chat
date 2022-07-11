@@ -47,8 +47,8 @@ type IncomingMessage struct {
 type OutcomeMessage struct {
 	Username string			`json:"username"`
 	ChannelName string		`json:"channel_name"`
-	ItsMe bool				`json:"its_me"`
 	Message MessageStruct	`json:"message"`
+	ItsMe bool				`json:"its_me"`
 	SentAt int64			`json:"sent_at"`
 }
 
@@ -231,6 +231,7 @@ func SubChannelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+
 func ListChannesHandler(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
 
@@ -262,6 +263,7 @@ func ListChannesHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+
 func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
 
@@ -292,7 +294,6 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Здесь обработка входяшего message
 		str := string(message)
-		log.Println("1", str)
 		var inMessage IncomingMessage
 		json.Unmarshal([]byte(str), &inMessage)
 		channels := tokenChannels[inMessage.Token]
@@ -314,7 +315,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 			socketClient.Websocket.WriteMessage(messageType, jsonResp)
 		} else {
 			for client := range users {
-				log.Println(inMessage.Token, channels, inMessage.ChannelName)
+				// log.Println(inMessage.Token, channels, inMessage.ChannelName)
 
 				// Send only for subscribers of the channel
 				channelExists := contains(channels, inMessage.ChannelName)
@@ -325,15 +326,15 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 					outMessage.Username = username_tokens[inMessage.Token]
 					outMessage.ChannelName = inMessage.ChannelName
 					outMessage.Message = inMessage.Message
-
-					socketToken := usersTokens[*socketClient]
-					outMessage.ItsMe = false
-
-					if socketToken == inMessage.Token {
-						outMessage.ItsMe = true
-					}
 					timeNow := time.Now()
 					outMessage.SentAt = timeNow.Unix()
+
+					// Set its_me to message
+					outTokens := usersTokens[client]
+					outMessage.ItsMe = false
+					if outTokens == inMessage.Token {
+						outMessage.ItsMe = true
+					}
 
 					jsonResp, _ := json.Marshal(outMessage)
 
