@@ -264,6 +264,22 @@ func ListChannesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 
+func prepareOutMessage(m IncomingMessage, outToken string) OutcomeMessage {
+	var outMessage OutcomeMessage
+	outMessage.Username = username_tokens[m.Token]
+	outMessage.ChannelName = m.ChannelName
+	outMessage.Message = m.Message
+	timeNow := time.Now()
+	outMessage.SentAt = timeNow.Unix()
+
+	// Set its_me to message
+	outMessage.ItsMe = false
+	if outToken == m.Token {
+		outMessage.ItsMe = true
+	}
+	return outMessage
+}
+
 func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 	setHeaders(w)
 
@@ -294,9 +310,10 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Здесь обработка входяшего message
 		str := string(message)
+		log.Println("Income message:", str)
 		var inMessage IncomingMessage
 		json.Unmarshal([]byte(str), &inMessage)
-		channels := tokenChannels[inMessage.Token]
+		channels := tokenChannels[inMessage.Token]		// this is mine channels
 
 		if inMessage.IsLogin == true {
 			// This is first message after connect to WS
@@ -317,33 +334,25 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 			for client := range users {
 				// log.Println(inMessage.Token, channels, inMessage.ChannelName)
 
+				outToken := usersTokens[client]
+				otherUserChannels := tokenChannels[outToken]
+
 				// Send only for subscribers of the channel
-				channelExists := contains(channels, inMessage.ChannelName)
+				channelExists := contains(otherUserChannels, inMessage.ChannelName)
 				if channelExists {
-
-					// change message object to new
-					var outMessage OutcomeMessage
-					outMessage.Username = username_tokens[inMessage.Token]
-					outMessage.ChannelName = inMessage.ChannelName
-					outMessage.Message = inMessage.Message
-					timeNow := time.Now()
-					outMessage.SentAt = timeNow.Unix()
-
-					// Set its_me to message
-					outTokens := usersTokens[client]
-					outMessage.ItsMe = false
-					if outTokens == inMessage.Token {
-						outMessage.ItsMe = true
-					}
-
+					// prepare message to send
+					outMessage := prepareOutMessage(inMessage, outToken)
 					jsonResp, _ := json.Marshal(outMessage)
 
+					log.Println("Outcome message:", outMessage)
+					log.Println("---")
+					
 					err = client.Websocket.WriteMessage(messageType, jsonResp)
 					if err != nil {
 						log.Println("Cloud not send Message to", client.ClientIP, err.Error())
 					}
 				} else {
-					log.Println("Channel name not exists", inMessage.ChannelName)
+					log.Println("Channel name not exists or user not subscribed this channel", inMessage.ChannelName)
 				}
 			}
 		}
