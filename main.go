@@ -304,7 +304,7 @@ func WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	log.Println("Client connected:", ws.RemoteAddr().String())
-	var socketClient *ConnectUser = newConnectUser(ws, ws.RemoteAddr().String())
+	var socketClient = newConnectUser(ws, ws.RemoteAddr().String())
 	users[*socketClient] = 0
 	log.Println("Number client connected ...", len(users))
 
